@@ -243,6 +243,31 @@ app.get('/api/diagnose-repo', async (req, res) => {
   }
 });
 
+app.get('/api/test-github', async (req, res) => {
+  try {
+    if (!process.env.GITHUB_TOKEN) {
+      return res.status(500).json({ error: 'GITHUB_TOKEN not set' });
+    }
+    
+    const axios = require('axios');
+    const response = await axios.get('https://api.github.com/user', {
+      headers: { 'Authorization': `token ${process.env.GITHUB_TOKEN}` }
+    });
+    
+    res.json({ 
+      message: '✅ GitHub API connected!',
+      user: response.data.login,
+      rateLimit: response.headers['x-ratelimit-remaining']
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      error: '❌ GitHub API failed',
+      details: error.message,
+      tokenExists: !!process.env.GITHUB_TOKEN
+    });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
