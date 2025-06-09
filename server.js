@@ -171,6 +171,41 @@ app.get('/api/status', async (req, res) => {
   }
 });
 
+app.get('/api/test-repo', async (req, res) => {
+  try {
+    const axios = require('axios');
+    const baseUrl = 'https://api.github.com/repos/unitedstates/congress';
+    
+    // Test main repo
+    const repoResponse = await axios.get(baseUrl, {
+      headers: { 'Authorization': `token ${process.env.GITHUB_TOKEN}` }
+    });
+    
+    // Test data directory
+    const dataResponse = await axios.get(`${baseUrl}/contents/data`, {
+      headers: { 'Authorization': `token ${process.env.GITHUB_TOKEN}` }
+    });
+    
+    // Test congress 118
+    const congress118Response = await axios.get(`${baseUrl}/contents/data/118`, {
+      headers: { 'Authorization': `token ${process.env.GITHUB_TOKEN}` }
+    });
+    
+    res.json({
+      repository: '✅ Accessible',
+      dataDirectory: `✅ Found ${dataResponse.data.length} items`,
+      congress118: `✅ Found ${congress118Response.data.length} items`,
+      congress118Items: congress118Response.data.map(item => item.name)
+    });
+  } catch (error) {
+    res.json({
+      error: error.message,
+      status: error.response?.status,
+      path: error.config?.url
+    });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
