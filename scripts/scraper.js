@@ -1,4 +1,3 @@
-// scripts/scraper.js
 const axios = require('axios');
 const { Bill } = require('../server.js');
 const natural = require('natural');
@@ -17,44 +16,87 @@ class CongressScraper {
     return 118;
   }
 
-  async getBillsList(congress) {
+  async testConnection() {
     try {
-      const response = await axios.get(
-        `${this.baseUrl}/contents/data/${congress}`,
-        { headers: this.headers }
-      );
-      
-      return response.data.filter(item => 
-        item.type === 'dir' && ['bills'].includes(item.name)
-      );
+      console.log('Testing GitHub API connection...');
+      const response = await axios.get(this.baseUrl, { headers: this.headers });
+      console.log('✅ Repository accessible');
+      return true;
     } catch (error) {
-      console.error('Error fetching bills list:', error.message);
-      return [];
+      console.error('❌ Repository access failed:', error.message);
+      throw error;
     }
   }
 
   async getBillTypes(congress) {
     try {
-      const response = await axios.get(
-        `${this.baseUrl}/contents/data/${congress}/bills`,
-        { headers: this.headers }
+      console.log(`Fetching bill types for Congress ${congress}...`);
+      
+      // First, check if the congress data directory exists
+      const congressPath = `${this.baseUrl}/contents/data/${congress}`;
+      const congressResponse = await axios.get(congressPath, { headers: this.headers });
+      
+      console.log(`Found ${congressResponse.data.length} items in Congress ${congress} data directory`);
+      
+      // Look for bills directory
+      const billsDir = congressResponse.data.find(item => 
+        item.type === 'dir' && item.name === 'bills'
       );
       
-      return response.data.filter(item => item.type === 'dir');
+      if (!billsDir) {
+        console.log('No bills directory found, trying alternative structure...');
+        // Try direct bill type access
+        return await this.getAlternativeBillTypes(congress);
+      }
+      
+      // Get bill types from bills directory
+      const billTypesPath = `${this.baseUrl}/contents/data/${congress}/bills`;
+      const response = await axios.get(billTypesPath, { headers: this.headers });
+      
+      const billTypes = response.data.filter(item => item.type === 'dir');
+      console.log(`Found bill types: ${billTypes.map(bt => bt.name).join(', ')}`);
+      
+      return billTypes;
     } catch (error) {
       console.error('Error fetching bill types:', error.message);
-      return [];
+      if (error.response?.status === 404) {
+        console.log('Bills directory not found, trying alternative approach...');
+        return await this.getAlternativeBillTypes(congress);
+      }
+      throw error;
     }
+  }
+
+  async getAlternativeBillTypes(congress) {
+    // Try common bill types directly
+    const commonBillTypes = ['hr', 's', 'hjres', 'sjres', 'hconres', 'sconres', 'hres', 'sres'];
+    const validBillTypes = [];
+    
+    for (const billType of commonBillTypes.slice(0, 2)) { // Limit to first 2 for testing
+      try {
+        const testPath = `${this.baseUrl}/contents/data/${congress}/bills/${billType}`;
+        await axios.get(testPath, { headers: this.headers });
+        validBillTypes.push({ name: billType, type: 'dir' });
+        console.log(`✅ Found bill type: ${billType}`);
+      } catch (error) {
+        console.log(`❌ Bill type ${billType} not found`);
+      }
+    }
+    
+    return validBillTypes;
   }
 
   async getBillsInType(congress, billType) {
     try {
+      console.log(`Fetching bills for type ${billType}...`);
       const response = await axios.get(
         `${this.baseUrl}/contents/data/${congress}/bills/${billType}`,
         { headers: this.headers }
       );
       
-      return response.data.filter(item => item.type === 'dir');
+      const bills = response.data.filter(item => item.type === 'dir');
+      console.log(`Found ${bills.length} bills in ${billType}`);
+      return bills.slice(0, 3); // Limit to 3 bills for testing
     } catch (error) {
       console.error(`Error fetching ${billType} bills:`, error.message);
       return [];
@@ -63,101 +105,147 @@ class CongressScraper {
 
   async getBillData(congress, billType, billNumber) {
     try {
-      const dataResponse = await axios.get(
-        `${this.baseUrl}/contents/data/${congress}/bills/${billType}/${billNumber}/data.json`,
-        { headers: this.headers }
-      );
+      console.log(`Fetching data for ${billType}${billNumber}...`);
+      
+      // Get bill metadata
+      const dataPath = `${this.baseUrl}/contents/data/${congress}/bills/${billType}/${billNumber}/data.json`;
+      const dataResponse = await axios.get(dataPath, { headers: this.headers });
+      
+      if (!dataResponse.data.content) {
+        throw new Error('No content in data.json response');
+      }
       
       const billData = JSON.parse(Buffer.from(dataResponse.data.content, 'base64').toString());
       
-      // Try to get full text
+      // Try to get full text (optional)
       let fullText = '';
       try {
-        const textResponse = await axios.get(
-          `${this.baseUrl}/contents/data/${congress}/bills/${billType}/${billNumber}/text-versions`,
-          { headers: this.headers }
-        );
+        const textVersionsPath = `${this.baseUrl}/contents/data/${congress}/bills/${billType}/${billNumber}/text-versions`;
+        const textResponse = await axios.get(textVersionsPath, { headers: this.headers });
         
         if (textResponse.data.length > 0) {
           const latestVersion = textResponse.data[0];
-          const textFileResponse = await axios.get(
-            `${this.baseUrl}/contents/data/${congress}/bills/${billType}/${billNumber}/text-versions/${latestVersion.name}/document.txt`,
-            { headers: this.headers }
-          );
-          fullText = Buffer.from(textFileResponse.data.content, 'base64').toString();
+          const textFilePath = `${this.baseUrl}/contents/data/${congress}/bills/${billType}/${billNumber}/text-versions/${latestVersion.name}/document.txt`;
+          
+          try {
+            const textFileResponse = await axios.get(textFilePath, { headers: this.headers });
+            fullText = Buffer.from(textFileResponse.data.content, 'base64').toString();
+            console.log(`✅ Got full text for ${billType}${billNumber} (${fullText.length} chars)`);
+          } catch (textError) {
+            console.log(`No full text file for ${billType}${billNumber}`);
+          }
         }
       } catch (textError) {
-        console.log(`No full text available for ${billType}${billNumber}`);
+        console.log(`No text versions available for ${billType}${billNumber}`);
       }
 
       return { ...billData, fullText };
     } catch (error) {
       console.error(`Error fetching bill data for ${billType}${billNumber}:`, error.message);
+      if (error.response?.status === 404) {
+        console.log(`Bill ${billType}${billNumber} data not found, skipping...`);
+      }
       return null;
     }
   }
 
   async scrapeBills() {
-    const congress = await this.getCurrentCongress();
-    console.log(`Scraping bills for Congress ${congress}`);
-
-    const billTypes = await this.getBillTypes(congress);
-    
-    for (const billTypeDir of billTypes.slice(0, 2)) { // Limit for demo
-      const billType = billTypeDir.name;
-      console.log(`Processing ${billType} bills...`);
+    try {
+      console.log('🚀 Starting bill scraping process...');
       
-      const bills = await this.getBillsInType(congress, billType);
+      // Test connection first
+      await this.testConnection();
       
-      for (const billDir of bills.slice(0, 5)) { // Limit for demo
-        const billNumber = billDir.name;
-        console.log(`Processing ${billType}${billNumber}...`);
-        
-        const billData = await this.getBillData(congress, billType, billNumber);
-        if (!billData) continue;
+      const congress = await this.getCurrentCongress();
+      console.log(`Scraping bills for Congress ${congress}`);
 
-        const billId = `${congress}-${billType}-${billNumber}`;
-        
-        const existingBill = await Bill.findOne({ billId });
-        if (existingBill) {
-          console.log(`Bill ${billId} already exists, skipping...`);
-          continue;
-        }
-
-        const bill = new Bill({
-          billId,
-          congress,
-          billType,
-          billNumber: parseInt(billNumber),
-          title: billData.title || '',
-          summary: billData.summary?.text || '',
-          fullText: billData.fullText || '',
-          sponsors: billData.sponsors?.map(s => s.name) || [],
-          introducedDate: billData.introduced_at ? new Date(billData.introduced_at) : new Date(),
-          lastAction: billData.actions?.[billData.actions.length - 1]?.text || '',
-          status: billData.status || 'unknown',
-          porkAnalysis: {
-            hasPork: false,
-            porkItems: [],
-            totalPorkValue: 0,
-            analysisDate: new Date()
-          }
-        });
-
-        await bill.save();
-        console.log(`Saved bill ${billId}`);
-        
-        // Add delay to respect rate limits
-        await new Promise(resolve => setTimeout(resolve, 100));
+      const billTypes = await this.getBillTypes(congress);
+      
+      if (billTypes.length === 0) {
+        throw new Error('No bill types found. Check GitHub repository structure.');
       }
+      
+      let totalProcessed = 0;
+      let totalSaved = 0;
+      
+      for (const billTypeDir of billTypes) {
+        const billType = billTypeDir.name;
+        console.log(`\n📋 Processing ${billType} bills...`);
+        
+        const bills = await this.getBillsInType(congress, billType);
+        console.log(`Found ${bills.length} bills to process`);
+        
+        for (const billDir of bills) {
+          const billNumber = billDir.name;
+          totalProcessed++;
+          
+          console.log(`Processing ${billType}${billNumber} (${totalProcessed})...`);
+          
+          const billData = await this.getBillData(congress, billType, billNumber);
+          if (!billData) {
+            console.log(`Skipping ${billType}${billNumber} - no data available`);
+            continue;
+          }
+
+          const billId = `${congress}-${billType}-${billNumber}`;
+          
+          // Check if bill already exists
+          const existingBill = await Bill.findOne({ billId });
+          if (existingBill) {
+            console.log(`Bill ${billId} already exists, skipping...`);
+            continue;
+          }
+
+          // Create and save bill
+          try {
+            const bill = new Bill({
+              billId,
+              congress,
+              billType,
+              billNumber: parseInt(billNumber) || 0,
+              title: billData.title || `${billType.toUpperCase()} ${billNumber}`,
+              summary: billData.summary?.text || '',
+              fullText: billData.fullText || '',
+              sponsors: billData.sponsors?.map(s => s.name || s.title || 'Unknown') || [],
+              introducedDate: billData.introduced_at ? new Date(billData.introduced_at) : new Date(),
+              lastAction: billData.actions?.[billData.actions.length - 1]?.text || '',
+              status: billData.status || 'unknown',
+              porkAnalysis: {
+                hasPork: false,
+                porkItems: [],
+                totalPorkValue: 0,
+                analysisDate: new Date()
+              }
+            });
+
+            await bill.save();
+            totalSaved++;
+            console.log(`✅ Saved bill ${billId} (${totalSaved} total saved)`);
+          } catch (saveError) {
+            console.error(`Error saving bill ${billId}:`, saveError.message);
+          }
+          
+          // Add delay to respect rate limits
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+      }
+      
+      console.log(`\n🎉 Scraping completed!`);
+      console.log(`📊 Total processed: ${totalProcessed}`);
+      console.log(`💾 Total saved: ${totalSaved}`);
+      
+      return { totalProcessed, totalSaved };
+    } catch (error) {
+      console.error('❌ Scraping failed:', error.message);
+      throw error;
     }
   }
 }
 
 if (require.main === module) {
   const scraper = new CongressScraper();
-  scraper.scrapeBills().then(() => {
-    console.log('Scraping completed');
+  scraper.scrapeBills().then((result) => {
+    console.log('Scraping completed:', result);
     process.exit(0);
   }).catch(error => {
     console.error('Scraping failed:', error);
