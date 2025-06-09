@@ -268,6 +268,122 @@ app.get('/api/test-github', async (req, res) => {
   }
 });
 
+app.get('/api/force-analysis', async (req, res) => {
+  try {
+    console.log('🔄 Forcing re-analysis of all existing bills...');
+    
+    // Clear all existing pork analysis data
+    const updateResult = await Bill.updateMany(
+      {},
+      {
+        $unset: {
+          'porkAnalysis.analysisDate': 1
+        },
+        $set: {
+          'porkAnalysis.hasPork': false,
+          'porkAnalysis.porkItems': [],
+          'porkAnalysis.totalPorkValue': 0
+        }
+      }
+    );
+    
+    console.log(`✅ Cleared analysis data for ${updateResult.modifiedCount} bills`);
+    
+    // Now run the analyzer
+    const PorkAnalyzer = require('./scripts/analyzer');
+    const analyzer = new PorkAnalyzer();
+    const analysisResult = await analyzer.analyzeAllBills();
+    
+    console.log('✅ Re-analysis completed');
+    
+    // Get final stats
+    const totalBills = await Bill.countDocuments();
+    const billsWithPork = await Bill.countDocuments({ 'porkAnalysis.hasPork': true });
+    const porkPercentage = totalBills > 0 ? ((billsWithPork / totalBills) * 100).toFixed(1) : 0;
+    
+    // Get total pork value
+    const totalPorkValue = await Bill.aggregate([
+      { $match: { 'porkAnalysis.hasPork': true } },
+      { $group: { _id: null, total: { $sum: '$porkAnalysis.totalPorkValue' } } }
+    ]);
+    
+    const formatCurrency = (amount) => {
+      if (amount >= 1000000000) return `$${(amount / 1000000000).toFixed(1)}B`;
+      if (amount >= 1000000) return `$${(amount / 1000000).toFixed(1)}M`;
+      return `$${amount.toLocaleString()}`;
+    };
+    
+    res.json({
+      success: true,
+      message: 'All bills re-analyzed successfully!',
+      analysisResult,
+      finalStats: {
+        totalBills,
+        billsWithPork,
+        porkPercentage: `${porkPercentage}%`,
+        totalPorkValue: formatCurrency(totalPorkValue[0]?.total || 0)
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Force analysis failed:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      message: 'Force analysis failed'
+    });
+  }
+});
+
+// Alternative: Reset everything and start fresh
+app.get('/api/reset-and-initialize', async (req, res) => {
+  try {
+    console.log('🗑️ Clearing all existing bills...');
+    
+    // Delete all existing bills
+    const deleteResult = await Bill.deleteMany({});
+    console.log(`✅ Deleted ${deleteResult.deletedCount} existing bills`);
+    
+    // Now run the full initialization
+    const CongressScraper = require('./scripts/scraper');
+    const PorkAnalyzer = require('./scripts/analyzer');
+    
+    console.log('📝 Creating fresh sample bills...');
+    const scraper = new CongressScraper();
+    const scrapeResult = await scraper.scrapeBills();
+    console.log('✅ Sample bills created');
+    
+    console.log('🔍 Analyzing bills for pork...');
+    const analyzer = new PorkAnalyzer();
+    const analysisResult = await analyzer.analyzeAllBills();
+    console.log('✅ Pork analysis completed');
+    
+    // Get final stats
+    const totalBills = await Bill.countDocuments();
+    const billsWithPork = await Bill.countDocuments({ 'porkAnalysis.hasPork': true });
+    
+    res.json({
+      success: true,
+      message: 'Database reset and reinitialized successfully!',
+      scrapeResult,
+      analysisResult,
+      stats: {
+        totalBills,
+        billsWithPork,
+        porkPercentage: totalBills > 0 ? ((billsWithPork / totalBills) * 100).toFixed(2) : 0
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Reset and initialization failed:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      message: 'Reset and initialization failed'
+    });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
