@@ -122,15 +122,6 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-Web App Troubleshooting & Database Initialization Guide
-Document 
-The issue is that your database is empty! Your web app deployed successfully, but no congressional bills have been scraped and analyzed yet. Here's how to fix it:
-
-🔧 Quick Fix Process:
-1. Add Database Initialization Code
-You need to add an endpoint to populate your database. Add this code to your server.js file (before the app.listen line):
-
-javascript
 // Add this initialization endpoint
 app.post('/api/initialize', async (req, res) => {
   try {
