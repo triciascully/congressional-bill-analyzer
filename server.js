@@ -206,6 +206,43 @@ app.get('/api/test-repo', async (req, res) => {
   }
 });
 
+app.get('/api/diagnose-repo', async (req, res) => {
+  try {
+    const axios = require('axios');
+    const baseUrl = 'https://api.github.com/repos/unitedstates/congress';
+    const headers = {
+      'Authorization': `token ${process.env.GITHUB_TOKEN}`,
+      'Accept': 'application/vnd.github.v3+json'
+    };
+
+    const results = {};
+
+    // Test main repository
+    const repoResponse = await axios.get(baseUrl, { headers });
+    results.repository = '✅ Accessible';
+
+    // Check root contents
+    const rootResponse = await axios.get(`${baseUrl}/contents`, { headers });
+    results.rootContents = rootResponse.data.map(item => `${item.name} (${item.type})`);
+
+    // Check data directory
+    try {
+      const dataResponse = await axios.get(`${baseUrl}/contents/data`, { headers });
+      results.dataDirectory = dataResponse.data.map(item => `${item.name} (${item.type})`);
+      
+      // Check for congress sessions
+      const congressSessions = dataResponse.data.filter(item => item.type === 'dir' && /^\d+$/.test(item.name));
+      results.congressSessions = congressSessions.map(item => item.name);
+    } catch (error) {
+      results.dataDirectory = `❌ Error: ${error.message}`;
+    }
+
+    res.json(results);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
