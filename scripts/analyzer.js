@@ -1,203 +1,376 @@
-// scripts/analyzer.js
-const natural = require('natural');
 const { Bill } = require('../server.js');
+const natural = require('natural');
 
 class PorkAnalyzer {
   constructor() {
-    // Keywords and phrases that indicate potential pork barrel spending
+    // Keywords that indicate potential pork barrel spending
     this.porkKeywords = [
-      'earmark', 'special project', 'bridge to nowhere', 'museum', 'cultural center',
-      'visitor center', 'renovation', 'beautification', 'arts center', 'sports facility',
-      'stadium', 'arena', 'conference center', 'community center', 'festival',
-      'celebration', 'commemoration', 'memorial', 'monument', 'statue',
-      'naming rights', 'research facility', 'laboratory', 'university project',
-      'college project', 'local project', 'hometown project', 'district project'
+      // Direct pork indicators
+      'memorial', 'commemorative', 'honor', 'tribute', 'heritage', 'historic',
+      'festival', 'celebration', 'cultural center', 'arts center', 'museum',
+      'stadium', 'arena', 'sports facility', 'recreation center',
+      'visitor center', 'tourism', 'beautification', 'enhancement',
+      
+      // Location-specific indicators
+      'hometown', 'local', 'district', 'community center', 'neighborhood',
+      'specific state', 'targeted location', 'various districts',
+      
+      // Project-specific indicators
+      'renovation', 'expansion', 'improvement', 'upgrade', 'modernization',
+      'construction project', 'infrastructure project', 'development project',
+      
+      // Funding pattern indicators
+      'appropriates', 'allocates', 'provides funding', 'targeted funding',
+      'special funding', 'earmark', 'designated for', 'specifically for'
     ];
 
+    // Phrases that indicate high-value local projects (often pork)
     this.suspiciousPatterns = [
-      /\$[\d,]+\s+(?:million|billion).*(?:for|to)\s+[\w\s]+(?:in|at|near)\s+[\w\s,]+/gi,
-      /appropriat\w+.*\$[\d,]+.*for.*(?:construct|build|establish|create)/gi,
-      /fund\w+.*\$[\d,]+.*(?:project|facility|center|institute)/gi
-    ];
-
-    this.locationIndicators = [
-      'in the district of', 'in the state of', 'located in', 'situated in',
-      'serving', 'benefiting', 'for the benefit of'
+      /\$\d+\s*million.*(?:memorial|stadium|center|museum|festival)/gi,
+      /(?:memorial|commemorative).*(?:bridge|highway|building)/gi,
+      /\$\d+\s*million.*(?:hometown|district|local)/gi,
+      /(?:various|specific|targeted).*(?:districts|locations|communities)/gi,
+      /(?:renovation|expansion).*(?:stadium|arena|facility)/gi
     ];
   }
 
-  extractMonetaryAmounts(text) {
-    const moneyPattern = /\$([0-9,]+(?:\.[0-9]{2})?)\s*(million|billion|thousand)?/gi;
+  extractMonetaryValues(text) {
     const amounts = [];
-    let match;
+    
+    // Match various currency formats
+    const patterns = [
+      /\$(\d+(?:,\d{3})*(?:\.\d{2})?)\s*(?:million|mil)/gi,
+      /\$(\d+(?:,\d{3})*(?:\.\d{2})?)\s*(?:billion|bil)/gi,
+      /(\d+(?:,\d{3})*(?:\.\d{2})?)\s*million\s*dollars?/gi,
+      /(\d+(?:,\d{3})*(?:\.\d{2})?)\s*billion\s*dollars?/gi
+    ];
 
-    while ((match = moneyPattern.exec(text)) !== null) {
-      let amount = parseFloat(match[1].replace(/,/g, ''));
-      const multiplier = match[2]?.toLowerCase();
-      
-      if (multiplier === 'million') amount *= 1000000;
-      else if (multiplier === 'billion') amount *= 1000000000;
-      else if (multiplier === 'thousand') amount *= 1000;
-
-      amounts.push({
-        original: match[0],
-        amount: amount,
-        context: this.getContext(text, match.index, 100)
-      });
-    }
+    patterns.forEach(pattern => {
+      let match;
+      while ((match = pattern.exec(text)) !== null) {
+        let value = parseFloat(match[1].replace(/,/g, ''));
+        
+        // Convert to actual dollar amount
+        if (match[0].toLowerCase().includes('billion')) {
+          value *= 1000000000;
+        } else if (match[0].toLowerCase().includes('million')) {
+          value *= 1000000;
+        }
+        
+        amounts.push({
+          value,
+          originalText: match[0],
+          formatted: this.formatCurrency(value)
+        });
+      }
+    });
 
     return amounts;
   }
 
-  getContext(text, index, radius = 50) {
-    const start = Math.max(0, index - radius);
-    const end = Math.min(text.length, index + radius);
-    return text.slice(start, end);
+  formatCurrency(amount) {
+    if (amount >= 1000000000) {
+      return `$${(amount / 1000000000).toFixed(1)}B`;
+    } else if (amount >= 1000000) {
+      return `$${(amount / 1000000).toFixed(1)}M`;
+    } else {
+      return `$${amount.toLocaleString()}`;
+    }
   }
 
-  identifyPorkItems(bill) {
-    const porkItems = [];
-    const text = `${bill.title} ${bill.summary} ${bill.fullText}`.toLowerCase();
+  analyzePorkIndicators(text) {
+    const indicators = [];
+    const lowerText = text.toLowerCase();
     
-    // Look for suspicious spending patterns
-    for (const pattern of this.suspiciousPatterns) {
-      let match;
-      while ((match = pattern.exec(text)) !== null) {
-        const context = this.getContext(text, match.index, 200);
-        const amounts = this.extractMonetaryAmounts(match[0]);
-        
-        if (amounts.length > 0) {
-          porkItems.push({
-            description: match[0].trim(),
-            amount: amounts[0].original,
-            beneficiary: this.extractBeneficiary(context),
-            justification: this.extractJustification(context),
-            suspicionLevel: this.calculateSuspicionLevel(match[0], context)
-          });
-        }
+    // Check for keyword matches
+    this.porkKeywords.forEach(keyword => {
+      if (lowerText.includes(keyword.toLowerCase())) {
+        indicators.push({
+          type: 'keyword',
+          keyword,
+          context: this.extractContext(text, keyword)
+        });
       }
-    }
+    });
 
-    // Look for keyword-based pork indicators
-    for (const keyword of this.porkKeywords) {
-      const keywordRegex = new RegExp(`\\b${keyword}\\b`, 'gi');
-      if (keywordRegex.test(text)) {
-        const matches = text.match(new RegExp(`.{0,100}\\b${keyword}\\b.{0,100}`, 'gi'));
-        
-        for (const match of matches || []) {
-          const amounts = this.extractMonetaryAmounts(match);
-          if (amounts.length > 0) {
-            porkItems.push({
-              description: match.trim(),
-              amount: amounts[0].original,
-              beneficiary: this.extractBeneficiary(match),
-              justification: `Contains keyword: ${keyword}`,
-              suspicionLevel: 'medium'
-            });
-          }
-        }
+    // Check for suspicious patterns
+    this.suspiciousPatterns.forEach((pattern, index) => {
+      const matches = text.match(pattern);
+      if (matches) {
+        matches.forEach(match => {
+          indicators.push({
+            type: 'pattern',
+            pattern: `Suspicious Pattern ${index + 1}`,
+            match,
+            context: match
+          });
+        });
       }
-    }
+    });
+
+    return indicators;
+  }
+
+  extractContext(text, keyword, contextLength = 100) {
+    const index = text.toLowerCase().indexOf(keyword.toLowerCase());
+    if (index === -1) return '';
+    
+    const start = Math.max(0, index - contextLength/2);
+    const end = Math.min(text.length, index + keyword.length + contextLength/2);
+    
+    return '...' + text.substring(start, end) + '...';
+  }
+
+  identifyPorkItems(text, monetaryValues, indicators) {
+    const porkItems = [];
+    
+    // Look for specific project mentions with funding
+    const projectPatterns = [
+      {
+        pattern: /\$\d+[^.]*?(?:memorial|commemorative)[^.]*?(?:bridge|highway|building|center)/gi,
+        type: 'Memorial Project'
+      },
+      {
+        pattern: /\$\d+[^.]*?(?:stadium|arena|sports facility)[^.]*/gi,
+        type: 'Sports Facility'
+      },
+      {
+        pattern: /\$\d+[^.]*?(?:museum|cultural center|arts center)[^.]*/gi,
+        type: 'Cultural Facility'
+      },
+      {
+        pattern: /\$\d+[^.]*?(?:visitor center|tourism|beautification)[^.]*/gi,
+        type: 'Tourism/Beautification'
+      },
+      {
+        pattern: /\$\d+[^.]*?(?:university|research facility)[^.]*/gi,
+        type: 'Educational Facility'
+      },
+      {
+        pattern: /\$\d+[^.]*?(?:various|miscellaneous|community)[^.]*/gi,
+        type: 'Various Local Projects'
+      }
+    ];
+
+    projectPatterns.forEach(({ pattern, type }) => {
+      const matches = text.match(pattern);
+      if (matches) {
+        matches.forEach(match => {
+          const amounts = this.extractMonetaryValues(match);
+          const totalValue = amounts.reduce((sum, amt) => sum + amt.value, 0);
+          
+          porkItems.push({
+            description: match.trim(),
+            amount: amounts.length > 0 ? amounts[0].formatted : 'Amount unclear',
+            beneficiary: this.extractBeneficiary(match),
+            justification: this.assessJustification(match),
+            suspicionLevel: this.calculateSuspicionLevel(match, totalValue),
+            type,
+            monetaryValue: totalValue
+          });
+        });
+      }
+    });
 
     return porkItems;
   }
 
   extractBeneficiary(text) {
-    // Simple extraction of potential beneficiaries
-    const statePattern = /(?:in|of)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/g;
-    const matches = text.match(statePattern);
-    return matches ? matches[0] : 'Unknown';
-  }
-
-  extractJustification(text) {
-    // Look for justification phrases
-    const justificationPatterns = [
-      /(?:for|to)\s+([^.]{10,50})/i,
-      /(?:purpose|intended|designed)\s+([^.]{10,50})/i
+    // Try to identify who benefits from the spending
+    const beneficiaryPatterns = [
+      /in\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/,
+      /for\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/,
+      /(?:sponsors?|representative|senator)\s+([A-Z][a-z]+)/i
     ];
 
-    for (const pattern of justificationPatterns) {
+    for (const pattern of beneficiaryPatterns) {
       const match = text.match(pattern);
       if (match) {
-        return match[1].trim();
+        return match[1];
       }
     }
-    return 'No clear justification found';
+
+    return 'Specific locality/district';
   }
 
-  calculateSuspicionLevel(description, context) {
-    let score = 0;
-    
-    // Check for high-value amounts
-    const amounts = this.extractMonetaryAmounts(description + context);
-    const maxAmount = Math.max(...amounts.map(a => a.amount), 0);
-    
-    if (maxAmount > 100000000) score += 3; // >100M
-    else if (maxAmount > 10000000) score += 2; // >10M
-    else if (maxAmount > 1000000) score += 1; // >1M
+  assessJustification(text) {
+    const justificationKeywords = [
+      'infrastructure', 'economic development', 'job creation', 'safety',
+      'education', 'research', 'healthcare', 'transportation'
+    ];
 
-    // Check for location specificity
-    if (this.locationIndicators.some(indicator => 
-      context.toLowerCase().includes(indicator))) {
-      score += 2;
+    const foundJustifications = justificationKeywords.filter(keyword =>
+      text.toLowerCase().includes(keyword)
+    );
+
+    if (foundJustifications.length > 0) {
+      return `Claimed: ${foundJustifications.join(', ')}`;
     }
 
-    // Check for vague or questionable purposes
-    const vagueTerms = ['various', 'miscellaneous', 'other', 'general', 'unspecified'];
-    if (vagueTerms.some(term => description.toLowerCase().includes(term))) {
-      score += 1;
-    }
+    return 'No clear public benefit justification';
+  }
 
-    if (score >= 4) return 'high';
-    if (score >= 2) return 'medium';
+  calculateSuspicionLevel(text, value) {
+    let suspicionScore = 0;
+
+    // High suspicion indicators
+    if (text.toLowerCase().includes('memorial')) suspicionScore += 3;
+    if (text.toLowerCase().includes('hometown')) suspicionScore += 3;
+    if (text.toLowerCase().includes('festival')) suspicionScore += 2;
+    if (text.toLowerCase().includes('stadium')) suspicionScore += 2;
+    if (text.toLowerCase().includes('various')) suspicionScore += 2;
+    if (text.toLowerCase().includes('targeted')) suspicionScore += 2;
+
+    // Value-based suspicion
+    if (value > 50000000) suspicionScore += 2; // Over $50M
+    if (value > 100000000) suspicionScore += 1; // Over $100M
+
+    // Length-based suspicion (very specific = more suspicious)
+    if (text.length > 100) suspicionScore += 1;
+
+    if (suspicionScore >= 5) return 'high';
+    if (suspicionScore >= 3) return 'medium';
     return 'low';
   }
 
-  async analyzeBill(billId) {
-    const bill = await Bill.findOne({ billId });
-    if (!bill) {
-      throw new Error(`Bill ${billId} not found`);
+  async analyzeAllBills() {
+    try {
+      console.log('🔍 Starting pork barrel analysis...');
+      
+      // Get all bills that haven't been analyzed yet
+      const bills = await Bill.find({
+        $or: [
+          { 'porkAnalysis.analysisDate': { $exists: false } },
+          { 'porkAnalysis.analysisDate': null }
+        ]
+      });
+
+      console.log(`Analyzing ${bills.length} bills for pork...`);
+
+      if (bills.length === 0) {
+        console.log('No bills found to analyze');
+        return { analyzed: 0, withPork: 0 };
+      }
+
+      let billsWithPork = 0;
+      let totalPorkValue = 0;
+
+      for (const bill of bills) {
+        console.log(`Analyzing ${bill.billId}: ${bill.title}`);
+        
+        // Combine all text for analysis
+        const analysisText = [
+          bill.title || '',
+          bill.summary || '',
+          bill.fullText || ''
+        ].join(' ');
+
+        // Extract monetary values
+        const monetaryValues = this.extractMonetaryValues(analysisText);
+        
+        // Find pork indicators
+        const indicators = this.analyzePorkIndicators(analysisText);
+        
+        // Identify specific pork items
+        const porkItems = this.identifyPorkItems(analysisText, monetaryValues, indicators);
+        
+        // Calculate total pork value
+        const billPorkValue = porkItems.reduce((sum, item) => 
+          sum + (item.monetaryValue || 0), 0
+        );
+
+        // Determine if bill has pork
+        const hasPork = porkItems.length > 0 || indicators.length >= 3;
+
+        if (hasPork) {
+          billsWithPork++;
+          totalPorkValue += billPorkValue;
+          console.log(`  🐷 PORK DETECTED: ${porkItems.length} items, ${this.formatCurrency(billPorkValue)}`);
+        } else {
+          console.log(`  ✅ CLEAN: No pork detected`);
+        }
+
+        // Update bill with analysis
+        bill.porkAnalysis = {
+          hasPork,
+          porkItems,
+          totalPorkValue: billPorkValue,
+          analysisDate: new Date(),
+          indicators: indicators.length,
+          confidence: this.calculateConfidence(porkItems, indicators)
+        };
+
+        await bill.save();
+      }
+
+      console.log(`\n🎉 Analysis completed!`);
+      console.log(`📊 Bills analyzed: ${bills.length}`);
+      console.log(`🐷 Bills with pork: ${billsWithPork}`);
+      console.log(`💰 Total pork value: ${this.formatCurrency(totalPorkValue)}`);
+      console.log(`📈 Pork percentage: ${((billsWithPork / bills.length) * 100).toFixed(1)}%`);
+
+      return {
+        analyzed: bills.length,
+        withPork: billsWithPork,
+        totalValue: totalPorkValue
+      };
+    } catch (error) {
+      console.error('❌ Analysis failed:', error.message);
+      throw error;
     }
-
-    const porkItems = this.identifyPorkItems(bill);
-    const totalPorkValue = porkItems.reduce((sum, item) => {
-      const amounts = this.extractMonetaryAmounts(item.amount);
-      return sum + (amounts[0]?.amount || 0);
-    }, 0);
-
-    bill.porkAnalysis = {
-      hasPork: porkItems.length > 0,
-      porkItems,
-      totalPorkValue,
-      analysisDate: new Date()
-    };
-
-    await bill.save();
-    console.log(`Analyzed bill ${billId}: Found ${porkItems.length} potential pork items`);
-    
-    return bill.porkAnalysis;
   }
 
-  async analyzeAllBills() {
-    const bills = await Bill.find({ 'porkAnalysis.analysisDate': { $exists: false } });
-    console.log(`Analyzing ${bills.length} bills for pork...`);
+  calculateConfidence(porkItems, indicators) {
+    let confidence = 0;
+    
+    // High confidence if specific monetary pork items found
+    if (porkItems.length > 0) confidence += 70;
+    
+    // Add confidence based on number of indicators
+    confidence += Math.min(indicators.length * 5, 30);
+    
+    return Math.min(confidence, 100);
+  }
 
-    for (const bill of bills) {
-      try {
-        await this.analyzeBill(bill.billId);
-      } catch (error) {
-        console.error(`Error analyzing bill ${bill.billId}:`, error.message);
+  async analyzeSingleBill(billId) {
+    try {
+      const bill = await Bill.findOne({ billId });
+      if (!bill) {
+        throw new Error(`Bill ${billId} not found`);
       }
-    }
 
-    console.log('Analysis completed');
+      console.log(`Analyzing single bill: ${billId}`);
+      
+      const analysisText = [bill.title, bill.summary, bill.fullText].join(' ');
+      const monetaryValues = this.extractMonetaryValues(analysisText);
+      const indicators = this.analyzePorkIndicators(analysisText);
+      const porkItems = this.identifyPorkItems(analysisText, monetaryValues, indicators);
+      const billPorkValue = porkItems.reduce((sum, item) => sum + (item.monetaryValue || 0), 0);
+      const hasPork = porkItems.length > 0 || indicators.length >= 3;
+
+      bill.porkAnalysis = {
+        hasPork,
+        porkItems,
+        totalPorkValue: billPorkValue,
+        analysisDate: new Date(),
+        indicators: indicators.length,
+        confidence: this.calculateConfidence(porkItems, indicators)
+      };
+
+      await bill.save();
+      
+      return bill.porkAnalysis;
+    } catch (error) {
+      console.error(`Error analyzing bill ${billId}:`, error.message);
+      throw error;
+    }
   }
 }
 
 if (require.main === module) {
   const analyzer = new PorkAnalyzer();
-  analyzer.analyzeAllBills().then(() => {
-    console.log('All bills analyzed');
+  analyzer.analyzeAllBills().then((result) => {
+    console.log('Analysis completed:', result);
     process.exit(0);
   }).catch(error => {
     console.error('Analysis failed:', error);
