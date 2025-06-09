@@ -123,7 +123,7 @@ app.get('/', (req, res) => {
 });
 
 // Add this initialization endpoint
-app.post('/api/initialize', async (req, res) => {
+app.get('/api/initialize', async (req, res) => {
   try {
     console.log('🚀 Starting database initialization...');
     
