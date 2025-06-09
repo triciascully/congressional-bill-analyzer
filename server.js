@@ -122,6 +122,64 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+Web App Troubleshooting & Database Initialization Guide
+Document 
+The issue is that your database is empty! Your web app deployed successfully, but no congressional bills have been scraped and analyzed yet. Here's how to fix it:
+
+🔧 Quick Fix Process:
+1. Add Database Initialization Code
+You need to add an endpoint to populate your database. Add this code to your server.js file (before the app.listen line):
+
+javascript
+// Add this initialization endpoint
+app.post('/api/initialize', async (req, res) => {
+  try {
+    console.log('🚀 Starting database initialization...');
+    
+    const CongressScraper = require('./scripts/scraper');
+    const PorkAnalyzer = require('./scripts/analyzer');
+    
+    console.log('📥 Scraping bills from GitHub...');
+    const scraper = new CongressScraper();
+    await scraper.scrapeBills();
+    
+    console.log('🔍 Analyzing bills for pork...');
+    const analyzer = new PorkAnalyzer();
+    await analyzer.analyzeAllBills();
+    
+    const totalBills = await Bill.countDocuments();
+    const billsWithPork = await Bill.countDocuments({ 'porkAnalysis.hasPork': true });
+    
+    res.json({ 
+      success: true, 
+      message: 'Database initialized successfully!',
+      stats: { totalBills, billsWithPork }
+    });
+  } catch (error) {
+    console.error('❌ Initialization error:', error);
+    res.status(500).json({ 
+      error: error.message,
+      message: 'Database initialization failed'
+    });
+  }
+});
+
+app.get('/api/status', async (req, res) => {
+  try {
+    const totalBills = await Bill.countDocuments();
+    res.json({
+      databaseConnected: true,
+      totalBills,
+      isEmpty: totalBills === 0
+    });
+  } catch (error) {
+    res.status(500).json({
+      databaseConnected: false,
+      error: error.message
+    });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
