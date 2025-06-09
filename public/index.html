@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Congressional Bill Analyzer - Pork Barrel Tracker</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 2rem 0;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 2rem;
+        }
+
+        .header h1 {
+            text-align: center;
+            color: #2c3e50;
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+            font-weight: 700;
+        }
+
+        .header p {
+            text-align: center;
+            color: #7f8c8d;
+            font-size: 1.2rem;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 2rem;
+            margin: 3rem 0;
+        }
+
+        .stat-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 2rem;
+            border-radius: 15px;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+        }
+
+        .stat-number {
+            font-size: 3rem;
+            font-weight: bold;
+            color: #e74c3c;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-label {
+            font-size: 1.1rem;
+            color: #7f8c8d;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .controls {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 2rem;
+            border-radius: 15px;
+            margin: 2rem 0;
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            flex-wrap: wrap;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.1);
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .filter-group label {
+            font-weight: 600;
+            color: #2c3e50;
+            font-size: 0.9rem;
+        }
+
+        select, input {
+            padding: 0.75rem;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: border-color 0.3s ease;
+        }
+
+        select:focus, input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 600;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .bills-container {
+            margin: 2rem 0;
+        }
+
+        .bill-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .bill-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+        }
+
+        .bill-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        .bill-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #2c3e50;
+            flex: 1;
+            min-width: 300px;
+        }
+
+        .bill-id {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .pork-indicator {
+            padding: 0.3rem 0.8rem;
+            border-radius: 15px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .pork-indicator.has-pork {
+            background: #ffebee;
+            color: #c62828;
+        }
+
+        .pork-indicator.no-pork {
+            background: #e8f5e8;
+            color: #2e7d32;
+        }
+
+        .bill-meta {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin: 1rem 0;
+            padding: 1rem;
+            background: rgba(248, 249, 250, 0.8);
+            border-radius: 10px;
+        }
+
+        .meta-item {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .meta-label {
+            font-size: 0.8rem;
+            color: #6c757d;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 0.25rem;
+        }
+
+        .meta-value {
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .bill-summary {
+            margin: 1rem 0;
+            line-height: 1.6;
+            color: #495057;
+        }
+
+        .pork-analysis {
+            margin-top: 1.5rem;
+            padding: 1.5rem;
+            background: linear-gradient(135deg, #ffebee 0%, #fce4ec 100%);
+            border-radius: 10px;
+            border-left: 4px solid #e91e63;
+        }
+
+        .pork-analysis h4 {
+            color: #c62828;
+            margin-bottom: 1rem;
+            font-size: 1.2rem;
+        }
+
+        .pork-item {
+            background: white;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            border-left: 3px solid #ff5722;
+        }
+
+        .pork-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .pork-description {
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 0.5rem;
+        }
+
+        .pork-details {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 0.5rem;
+            font-size: 0.9rem;
+            color: #6c757d;
+        }
+
+        .suspicion-level {
+            padding: 0.2rem 0.6rem;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .suspicion-high {
+            background: #ffcdd2;
+            color: #c62828;
+        }
+
+        .suspicion-medium {
+            background: #fff3e0;
+            color: #ef6c00;
+        }
+
+        .suspicion-low {
+            background: #e8f5e8;
+            color: #2e7d32;
+        }
+
+        .pagination {
+            display: flex;
+            justify-content: center;
+            gap: 0.5rem;
+            margin: 2rem 0;
+        }
+
+        .pagination button {
+            padding: 0.5rem 1rem;
+            border: 2px solid #667eea;
+            background: white;
+            color: #667eea;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .pagination button:hover:not(:disabled) {
+            background: #667eea;
+            color: white;
+        }
+
+        .pagination button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .pagination button.active {
+            background: #667eea;
+            color: white;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 3rem;
+            font-size: 1.2rem;
+            color: #6c757d;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 1rem;
+            border-radius: 8px;
+            margin: 1rem 0;
+            text-align: center;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 0 1rem;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .bill-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            
+            .bill-title {
+                min-width: auto;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="container">
+            <h1>🏛️ Congressional Bill Analyzer</h1>
+            <p>Tracking Pork Barrel Spending in Congressional Bills</p>
+        </div>
+    </header>
+
+    <main class="container">
+        <div class="stats-grid" id="statsGrid">
+            <div class="stat-card">
+                <div class="stat-number" id="totalBills">-</div>
+                <div class="stat-label">Total Bills</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="billsWithPork">-</div>
+                <div class="stat-label">Bills with Pork</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="porkPercentage">-</div>
+                <div class="stat-label">Pork Percentage</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="totalPorkValue">-</div>
+                <div class="stat-label">Total Pork Value</div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <div class="filter-group">
+                <label for="porkFilter">Filter by Pork</label>
+                <select id="porkFilter">
+                    <option value="">All Bills</option>
+                    <option value="true">Bills with Pork</option>
+                    <option value="false">Bills without Pork</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label for="congressFilter">Congress</label>
+                <select id="congressFilter">
+                    <option value="">All Congress</option>
+                    <option value="118">118th Congress (2023-2025)</option>
+                    <option value="117">117th Congress (2021-2023)</option>
+                </select>
+            </div>
+            <button class="btn" onclick="loadBills()">Apply Filters</button>
+            <button class="btn" onclick="refreshData()">Refresh Data</button>
+        </div>
+
+        <div class="bills-container">
+            <div id="loading" class="loading" style="display: none;">
+                <div class="spinner"></div>
+                Loading congressional bills...
+            </div>
+            <div id="error" class="error" style="display: none;"></div>
+            <div id="billsList"></div>
+        </div>
+
+        <div class="pagination" id="pagination" style="display: none;"></div>
+    </main>
+
+    <script>
+        let currentPage = 1;
+        let totalPages = 1;
+        let currentFilters = {};
+
+        // Load initial data
+        document.addEventListener('DOMContentLoaded', function() {
+            loadStats();
+            loadBills();
+        });
+
+        async function loadStats() {
+            try {
+                const response = await fetch('/api/stats');
+                const stats = await response.json();
+                
+                document.getElementById('totalBills').textContent = stats.totalBills.toLocaleString();
+                document.getElementById('billsWithPork').textContent = stats.billsWithPork.toLocaleString();
+                document.getElementById('porkPercentage').textContent = stats.porkPercentage + '%';
+                document.getElementById('totalPorkValue').textContent = formatCurrency(stats.totalPorkValue);
+            } catch (error) {
+                console.error('Error loading stats:', error);
+            }
+        }
+
+        async function loadBills(page = 1) {
+            const loading = document.getElementById('loading');
+            const error = document.getElementById('error');
+            const billsList = document.getElementById('billsList');
+            
+            loading.style.display = 'block';
+            error.style.display = 'none';
+            billsList.innerHTML = '';
+
+            try {
+                const params = new URLSearchParams({
+                    page: page,
+                    limit: 10
+                });
+
+                // Add filters
+                const porkFilter = document.getElementById('porkFilter').value;
+                const congressFilter = document.getElementById('congressFilter').value;
+
+                if (porkFilter) params.append('hasPork', porkFilter);
+                if (congressFilter) params.append('congress', congressFilter);
+
+                const response = await fetch(`/api/bills?${params}`);
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to load bills');
+                }
+
+                currentPage = data.currentPage;
+                totalPages = data.totalPages;
+
+                displayBills(data.bills);
+                updatePagination();
+
+            } catch (err) {
+                error.textContent = 'Error loading bills: ' + err.message;
+                error.style.display = 'block';
+            } finally {
+                loading.style.display = 'none';
+            }
+        }
+
+        function displayBills(bills) {
+            const billsList = document.getElementById('billsList');
+            
+            if (bills.length === 0) {
+                billsList.innerHTML = '<div class="loading">No bills found matching your criteria.</div>';
+                return;
+            }
+
+            billsList.innerHTML = bills.map(bill => `
+                <div class="bill-card">
+                    <div class="bill-header">
+                        <h3 class="bill-title">${escapeHtml(bill.title || 'Untitled Bill')}</h3>
+                        <div style="display: flex; gap: 1rem; align-items: center;">
+                            <span class="bill-id">${bill.billId}</span>
+                            <span class="pork-indicator ${bill.porkAnalysis.hasPork ? 'has-pork' : 'no-pork'}">
+                                ${bill.porkAnalysis.hasPork ? '🐷 Has Pork' : '✅ Clean'}
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="bill-meta">
+                        <div class="meta-item">
+                            <span class="meta-label">Introduced</span>
+                            <span class="meta-value">${formatDate(bill.introducedDate)}</span>
+                        </div>
+                        <div class="meta-item">
+                            <span class="meta-label">Status</span>
+                            <span class="meta-value">${escapeHtml(bill.status)}</span>
+                        </div>
+                        <div class="meta-item">
+                            <span class="meta-label">Sponsors</span>
+                            <span class="meta-value">${bill.sponsors.length} sponsor(s)</span>
+                        </div>
+                        ${bill.porkAnalysis.hasPork ? `
+                        <div class="meta-item">
+                            <span class="meta-label">Pork Value</span>
+                            <span class="meta-value">${formatCurrency(bill.porkAnalysis.totalPorkValue)}</span>
+                        </div>
+                        ` : ''}
+                    </div>
+
+                    ${bill.summary ? `
+                    <div class="bill-summary">
+                        <strong>Summary:</strong> ${escapeHtml(bill.summary.substring(0, 300))}${bill.summary.length > 300 ? '...' : ''}
+                    </div>
+                    ` : ''}
+
+                    ${bill.porkAnalysis.hasPork ? `
+                    <div class="pork-analysis">
+                        <h4>🐷 Pork Barrel Analysis (${bill.porkAnalysis.porkItems.length} items found)</h4>
+                        ${bill.porkAnalysis.porkItems.map(item => `
+                            <div class="pork-item">
+                                <div class="pork-description">${escapeHtml(item.description.substring(0, 200))}${item.description.length > 200 ? '...' : ''}</div>
+                                <div class="pork-details">
+                                    <div><strong>Amount:</strong> ${escapeHtml(item.amount)}</div>
+                                    <div><strong>Beneficiary:</strong> ${escapeHtml(item.beneficiary)}</div>
+                                    <div><strong>Suspicion:</strong> <span class="suspicion-level suspicion-${item.suspicionLevel}">${item.suspicionLevel}</span></div>
+                                </div>
+                                ${item.justification ? `<div style="margin-top: 0.5rem; font-size: 0.9rem; color: #6c757d;"><strong>Justification:</strong> ${escapeHtml(item.justification)}</div>` : ''}
+                            </div>
+                        `).join('')}
+                    </div>
+                    ` : ''}
+                </div>
+            `).join('');
+        }
+
+        function updatePagination() {
+            const pagination = document.getElementById('pagination');
+            
+            if (totalPages <= 1) {
+                pagination.style.display = 'none';
+                return;
+            }
+
+            pagination.style.display = 'flex';
+            
+            let paginationHTML = '';
+            
+            // Previous button
+            paginationHTML += `<button onclick="loadBills(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>← Previous</button>`;
+            
+            // Page numbers
+            const startPage = Math.max(1, currentPage - 2);
+            const endPage = Math.min(totalPages, currentPage + 2);
+            
+            if (startPage > 1) {
+                paginationHTML += `<button onclick="loadBills(1)">1</button>`;
+                if (startPage > 2) {
+                    paginationHTML += `<button disabled>...</button>`;
+                }
+            }
+            
+            for (let i = startPage; i <= endPage; i++) {
+                paginationHTML += `<button onclick="loadBills(${i})" ${i === currentPage ? 'class="active"' : ''}>${i}</button>`;
+            }
+            
+            if (endPage < totalPages) {
+                if (endPage < totalPages - 1) {
+                    paginationHTML += `<button disabled>...</button>`;
+                }
+                paginationHTML += `<button onclick="loadBills(${totalPages})">${totalPages}</button>`;
+            }
+            
+            // Next button
+            paginationHTML += `<button onclick="loadBills(${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''}>Next →</button>`;
+            
+            pagination.innerHTML = paginationHTML;
+        }
+
+        function refreshData() {
+            loadStats();
+            loadBills(1);
+        }
+
+        function formatCurrency(amount) {
+            if (!amount || amount === 0) return '$0';
+            
+            if (amount >= 1000000000) {
+                return ' + (amount / 1000000000).toFixed(1) + 'B';
+            } else if (amount >= 1000000) {
+                return ' + (amount / 1000000).toFixed(1) + 'M';
+            } else if (amount >= 1000) {
+                return ' + (amount / 1000).toFixed(1) + 'K';
+            } else {
+                return ' + amount.toLocaleString();
+            }
+        }
+
+        function formatDate(dateString) {
+            if (!dateString) return 'Unknown';
+            return new Date(dateString).toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric'
+            });
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Auto-refresh every 5 minutes
+        setInterval(refreshData, 5 * 60 * 1000);
+    </script>
+</body>
+</html>
