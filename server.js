@@ -384,6 +384,197 @@ app.get('/api/reset-and-initialize', async (req, res) => {
   }
 });
 
+// Endpoint to clear sample data and load real bills
+app.get('/api/load-real-data', async (req, res) => {
+  try {
+    console.log('🔄 Loading real congressional bill data...');
+    
+    // Delete existing sample bills (optional)
+    const deleteResult = await Bill.deleteMany({});
+    console.log(`🗑️ Cleared ${deleteResult.deletedCount} existing bills`);
+    
+    // Use the real data scraper
+    const RealCongressScraper = require('./scripts/scraper');
+    const scraper = new RealCongressScraper();
+    const scrapeResult = await scraper.scrapeBills();
+    
+    console.log('✅ Real data loaded');
+    
+    // Analyze the new bills
+    const PorkAnalyzer = require('./scripts/analyzer');
+    const analyzer = new PorkAnalyzer();
+    const analysisResult = await analyzer.analyzeAllBills();
+    
+    console.log('✅ Analysis completed');
+    
+    // Get final stats
+    const totalBills = await Bill.countDocuments();
+    const billsWithPork = await Bill.countDocuments({ 'porkAnalysis.hasPork': true });
+    
+    res.json({
+      success: true,
+      message: 'Real congressional data loaded successfully!',
+      scrapeResult,
+      analysisResult,
+      stats: {
+        totalBills,
+        billsWithPork,
+        porkPercentage: totalBills > 0 ? ((billsWithPork / totalBills) * 100).toFixed(1) : 0
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Real data loading failed:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      message: 'Failed to load real data'
+    });
+  }
+});
+
+// Endpoint to refresh/update existing data
+app.get('/api/refresh-data', async (req, res) => {
+  try {
+    console.log('🔄 Refreshing congressional bill data...');
+    
+    // Get new bills without deleting existing ones
+    const RealCongressScraper = require('./scripts/scraper');
+    const scraper = new RealCongressScraper();
+    const scrapeResult = await scraper.scrapeBills();
+    
+    console.log('✅ Data refreshed');
+    
+    // Re-analyze all bills (including new ones)
+    const PorkAnalyzer = require('./scripts/analyzer');
+    const analyzer = new PorkAnalyzer();
+    
+    // Clear existing analysis and re-analyze all
+    await Bill.updateMany(
+      {},
+      {
+        $unset: { 'porkAnalysis.analysisDate': 1 },
+        $set: {
+          'porkAnalysis.hasPork': false,
+          'porkAnalysis.porkItems': [],
+          'porkAnalysis.totalPorkValue': 0
+        }
+      }
+    );
+    
+    const analysisResult = await analyzer.analyzeAllBills();
+    console.log('✅ Re-analysis completed');
+    
+    // Get updated stats
+    const totalBills = await Bill.countDocuments();
+    const billsWithPork = await Bill.countDocuments({ 'porkAnalysis.hasPork': true });
+    
+    res.json({
+      success: true,
+      message: 'Data refreshed successfully!',
+      scrapeResult,
+      analysisResult,
+      stats: {
+        totalBills,
+        billsWithPork,
+        porkPercentage: totalBills > 0 ? ((billsWithPork / totalBills) * 100).toFixed(1) : 0
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Data refresh failed:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      message: 'Failed to refresh data'
+    });
+  }
+});
+
+// Endpoint to get Congress.gov API key setup instructions
+app.get('/api/setup-real-data', async (req, res) => {
+  try {
+    const hasApiKey = !!process.env.CONGRESS_API_KEY;
+    
+    res.json({
+      hasApiKey,
+      message: hasApiKey ? 
+        'Congress.gov API key is configured. You can use real data!' :
+        'Congress.gov API key not found. Using realistic sample data.',
+      instructions: {
+        step1: 'Visit https://api.data.gov/signup/',
+        step2: 'Register for a free API key',
+        step3: 'Add CONGRESS_API_KEY to your Render environment variables',
+        step4: 'Redeploy your app',
+        step5: 'Use /api/load-real-data to get real congressional bills',
+        note: 'Without an API key, the system uses realistic sample data based on actual bills'
+      },
+      currentStatus: hasApiKey ? 'Ready for real data' : 'Using sample data',
+      sampleDataInfo: 'The sample data includes realistic bills like the Infrastructure Investment Act, CHIPS Act, and appropriations bills with real pork barrel examples'
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error.message,
+      message: 'Failed to check API key status'
+    });
+  }
+});
+
+// Enhanced initialization that uses real data scraper
+app.get('/api/initialize-real', async (req, res) => {
+  try {
+    console.log('🚀 Initializing with real congressional data...');
+    
+    // Check if we already have data
+    const existingCount = await Bill.countDocuments();
+    if (existingCount > 0) {
+      return res.json({
+        success: true,
+        message: `Database already contains ${existingCount} bills. Use /api/refresh-data to update or /api/load-real-data to start fresh.`,
+        existingBills: existingCount
+      });
+    }
+    
+    // Load real data
+    const RealCongressScraper = require('./scripts/scraper');
+    const scraper = new RealCongressScraper();
+    const scrapeResult = await scraper.scrapeBills();
+    
+    console.log('✅ Real bills loaded');
+    
+    // Analyze for pork
+    const PorkAnalyzer = require('./scripts/analyzer');
+    const analyzer = new PorkAnalyzer();
+    const analysisResult = await analyzer.analyzeAllBills();
+    
+    console.log('✅ Pork analysis completed');
+    
+    // Get final stats
+    const totalBills = await Bill.countDocuments();
+    const billsWithPork = await Bill.countDocuments({ 'porkAnalysis.hasPork': true });
+    
+    res.json({
+      success: true,
+      message: 'Database initialized with real congressional data!',
+      scrapeResult,
+      analysisResult,
+      stats: {
+        totalBills,
+        billsWithPork,
+        porkPercentage: totalBills > 0 ? ((billsWithPork / totalBills) * 100).toFixed(1) : 0
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Real data initialization failed:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      message: 'Real data initialization failed'
+    });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });

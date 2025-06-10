@@ -432,7 +432,7 @@
                     <option value="117">117th Congress</option>
                 </select>
 
-                <button class="refresh-btn" onclick="loadData()">🔄 Refresh Data</button>
+                <button class="refresh-btn" onclick="refreshRealData()">🔄 Refresh Data</button>
             </div>
         </div>
 
@@ -628,6 +628,28 @@
         async function loadData() {
             console.log('Loading data...');
             await Promise.all([loadStats(), loadBills()]);
+        }
+
+        // And add this function to your JavaScript:
+        async function refreshRealData() {
+            try {
+                document.querySelector('.refresh-btn').textContent = '🔄 Refreshing...';
+                const response = await fetch('/api/refresh-data');
+                const result = await response.json();
+                
+                if (result.success) {
+                    console.log('Data refreshed:', result);
+                    await loadData(); // Reload the page data
+                    alert('Data refreshed successfully!');
+                } else {
+                    alert('Failed to refresh data: ' + result.message);
+                }
+            } catch (error) {
+                console.error('Refresh failed:', error);
+                alert('Failed to refresh data');
+            } finally {
+                document.querySelector('.refresh-btn').textContent = '🔄 Refresh Data';
+            }
         }
 
         // Event listeners
