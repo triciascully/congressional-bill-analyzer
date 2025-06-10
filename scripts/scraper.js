@@ -124,8 +124,8 @@ class RealCongressScraper {
       text += billData.summaries[0].text + ' ';
     }
     if (billData.policyArea?.name) text += `Policy Area: ${billData.policyArea.name} `;
-    if (billData.subjects) {
-      const subjects = billData.subjects.map(s => s.name).join(', ');
+    if (billData.subjects && Array.isArray(billData.subjects) && billData.subjects.length > 0) {
+      const subjects = billData.subjects.map(s => s.name || s).join(', ');
       text += `Subjects: ${subjects} `;
     }
 
@@ -135,10 +135,14 @@ class RealCongressScraper {
   extractSponsors(billData) {
     const sponsors = [];
     
-    if (billData.sponsors) {
+    if (billData.sponsors && Array.isArray(billData.sponsors)) {
       billData.sponsors.forEach(sponsor => {
-        const name = `${sponsor.firstName || ''} ${sponsor.lastName || ''}`.trim();
-        if (name) sponsors.push(name);
+        if (typeof sponsor === 'string') {
+          sponsors.push(sponsor);
+        } else if (sponsor && typeof sponsor === 'object') {
+          const name = `${sponsor.firstName || ''} ${sponsor.lastName || ''}`.trim();
+          if (name) sponsors.push(name);
+        }
       });
     }
 
